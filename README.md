@@ -734,3 +734,543 @@ public class SimpleConsumerApplication {
  
 
 }
+
+. Fire and forgot
+
+          prop.put("acks","0");
+
+       - In this method we send the message to broker and dont care about it whether it is successfully received or not
+
+ 
+
+2. Synchronous send
+
+         prop.put("acks","1");
+
+       - We send message and wait until we get the response, in case of sucess  we get RecordMetadataObject, in failure we get exception
+
+ 
+
+1. Create topic
+
+C:\Softwares\kafka_2.12-2.6.0\config>kafka-topics.bat --zookeeper localhost:2181 --replication-factor 1 --partitions 3 --topic synctopic --create
+
+Created topic "synctopic".
+
+ 
+
+2. Create producer appl
+
+ 
+
+public class SynchProducerApplication {
+
+ 
+
+              public static void main(String[] args) {
+
+        Properties prop=new Properties();
+
+                            
+
+                             prop.put("bootstrap.servers", "localhost:9092");
+
+                             prop.put("key.serializer",
+
+                                                         "org.apache.kafka.common.serialization.StringSerializer");
+
+                             prop.put("value.serializer",
+
+                                                         "org.apache.kafka.common.serialization.StringSerializer");
+
+                             prop.put("acks", "1");
+
+                             Producer<String,String> producer=new KafkaProducer<>(prop);
+
+                            
+
+                             //In this case default partitioner is disabled and data is send to partition 2
+
+                             //ProducerRecord<String,String> record=new ProducerRecord<>("synctopic",2,"synckey","value1");
+
+                            
+
+                             //If we pass key then kafka perform hashing algorithm on the key to decide
+
+                             //partition no for that message, if we change the value it will go to same
+
+                             //partition no, but if we change the key it will goto different partition no
+
+                             //ProducerRecord<String,String> record=new ProducerRecord<>("synctopic","synckey2","value3");
+
+       
+
+                             //Kafka  will decide partition no for that message using round robin algorithm
+
+                             ProducerRecord<String,String> record=new ProducerRecord<>("synctopic","value6");
+
+                             try {
+
+                                           RecordMetadata metadata=producer.send(record).get();
+
+                                           System.out.println("Message is sent to Partition no "
+
+                                                +metadata.partition()+" and offset is "+metadata.offset());
+
+                                           System.out.println("Synchronous producer completed");
+
+                             }
+
+                             catch(Exception e) {
+
+                                           e.printStackTrace();
+
+                             }
+
+                             finally {
+
+                                           producer.close();
+
+                             }
+
+              }
+
+ 
+
+}
+
+ 
+
+3. Asynchronous send
+
+       - we send a message and provide callback function to receive acknowledgement, we dont wait for success and failure
+
+        prop.put("acks","all");
+
+ 
+
+1. Create topic
+
+ 
+
+C:\Softwares\kafka_2.12-2.6.0\config>kafka-topics.bat --zookeeper localhost:2181 --replication-factor 1 --partitions 3 --topic asynctopic --create
+
+ 
+
+2. Create producer appl
+
+public class AsynchProducerApplication {
+
+ 
+
+              public static void main(String[] args) {
+
+        Properties prop=new Properties();
+
+                            
+
+                             prop.put("bootstrap.servers", "localhost:9092");
+
+                             prop.put("key.serializer",
+
+                                                         "org.apache.kafka.common.serialization.StringSerializer");
+
+                             prop.put("value.serializer",
+
+                                                         "org.apache.kafka.common.serialization.StringSerializer");
+
+                             prop.put("acks", "all");
+
+                             Producer<String,String> producer=new KafkaProducer<>(prop);
+
+                            
+
+                             ProducerRecord<String,String> record=new ProducerRecord<>("asynctopic","Oey","value7");
+
+                             producer.send(record, new MyCallback());
+
+                             System.out.println("Asynchronous producer completed");
+
+                            producer.close();
+
+ 
+
+              }
+
+ 
+
+}
+
+ 
+
+class MyCallback implements Callback {
+
+ 
+
+              @Override
+
+              public void onCompletion(RecordMetadata metadata, Exception exception) {
+
+                             if(exception!=null)
+
+                                           System.out.println("Asynchronous producer failed with an exception");
+
+                             else
+
+                                           System.out.println("Message send to partiton no "
+
+                                      +metadata.partition()+" and offset is "+metadata.offset());
+
+              }
+
+             
+
+}
+
+ 
+
+Custom Serializer and Deserializer
+
+ 
+
+1. Create topic
+
+ 
+
+C:\Softwares\kafka_2.12-2.6.0\config>kafka-topics.bat --zookeeper localhost:2181 --replication-factor 1 --partitions 3 --topic suptopic --create
+
+Created topic "suptopic".
+
+ 
+
+2. Create Supplier class
+
+ 
+
+public class Supplier {
+
+    private int supplierId;
+
+    private String name;
+
+    private Date supplierStartDate;
+
+}
+
+ 
+
+3. Create serializer class to convert supplier object to array of bytes, we need to implement Serializer interface
+
+    configure() - for initialization, called only once
+
+    serialize() - conversion logic
+
+    close() - for cleanup
+
+ 
+
+public class SupplierSerializer implements Serializer<Supplier>{
+
+ 
+
+              @Override
+
+              public void configure(Map<String, ?> configs, boolean isKey) {
+
+                             // TODO Auto-generated method stub
+
+                            
+
+              }
+
+ 
+
+              @Override
+
+              public byte[] serialize(String topic, Supplier data) {
+
+                             byte[] serializedName;
+
+                             byte[] serializedDate;
+
+                             try {
+
+                                           if(data==null)
+
+                                                          return null;
+
+                                           serializedName=data.getName().getBytes("UTF8");
+
+                                    serializedDate=data.getSupplierStartDate().toString().getBytes("UTF8");
+
+                                          
+
+                                           ByteBuffer buf=ByteBuffer.allocate(100);
+
+                                           buf.putInt(data.getSupplierId());
+
+                                           buf.putInt(serializedName.length);
+
+                                           buf.put(serializedName);
+
+                                           buf.putInt(serializedDate.length);
+
+                                           buf.put(serializedDate);
+
+                                          
+
+                                           return buf.array();
+
+                             }
+
+                             catch(Exception e) {
+
+                                           throw new SerializationException("Error when serializing supplier object to byte[]");
+
+                             }
+
+                            
+
+              }
+
+ 
+
+              @Override
+
+              public void close() {
+
+                             // TODO Auto-generated method stub
+
+                            
+
+              }
+
+ 
+
+}
+
+ 
+
+ 
+
+4. Create deserializer class to convert byte array to supplier object, which implements Deserializer interface
+
+    configure()
+
+    deserialize()
+
+    close()
+
+ 
+
+public class SupplierDeserializer implements Deserializer<Supplier>{
+
+ 
+
+              @Override
+
+              public void configure(Map<String, ?> configs, boolean isKey) {
+
+                             // TODO Auto-generated method stub
+
+                            
+
+              }
+
+ 
+
+              @Override
+
+              public Supplier deserialize(String topic, byte[] data) {
+
+                             try {
+
+                                           if(data==null) {
+
+                                                          System.out.println("Null received at deserialize");
+
+                                                          return null;
+
+                                           }
+
+                                           ByteBuffer buf=ByteBuffer.wrap(data);
+
+                                           int id=buf.getInt();
+
+                                          
+
+                                           byte[] nameBytes=new byte[buf.getInt()];
+
+                                           buf.get(nameBytes);
+
+                                           String deserializedName=new String(nameBytes,"UTF8");
+
+                                          
+
+                                           byte[] dateBytes=new byte[buf.getInt()];
+
+                                           buf.get(dateBytes);
+
+                                           String dateString = new String(dateBytes,"UTF8");
+
+                                           DateFormat df=new SimpleDateFormat("EEE MMM dd HH:mm:ss Z yyyy");
+
+                                          
+
+                                           return new Supplier(id,deserializedName,df.parse(dateString));
+
+                             }
+
+                             catch(Exception e) {
+
+                                           throw new SerializationException("Error when deserializing byte[] to supplier object");
+
+                             }
+
+              }
+
+ 
+
+              @Override
+
+              public void close() {
+
+                             // TODO Auto-generated method stub
+
+                            
+
+              }
+
+ 
+
+}
+
+ 
+
+5. Create producer appl
+
+ 
+
+public class SupplierProducer {
+
+ 
+
+              public static void main(String[] args) throws Exception {
+
+        Properties prop=new Properties();
+
+                            
+
+                             prop.put("bootstrap.servers", "localhost:9092");
+
+                             prop.put("key.serializer",
+
+                                                         "org.apache.kafka.common.serialization.StringSerializer");
+
+                             prop.put("value.serializer",
+
+                                                          "com.pack.SupplierSerializer");
+
+                            
+
+                             Producer<String,Supplier> producer=new KafkaProducer<>(prop);
+
+                            
+
+                             DateFormat df=new SimpleDateFormat("yyyy-MM-dd");
+
+                             Supplier sup1=new Supplier(1000,"Parle Ltd",df.parse("2020-10-20"));
+
+                             Supplier sup2=new Supplier(1001,"Johnson Ltd",df.parse("2021-11-23"));
+
+                            
+
+                             producer.send(new ProducerRecord<String,Supplier>("suptopic","SUPPLIER",sup1)).get();
+
+                             producer.send(new ProducerRecord<String,Supplier>("suptopic","SUPPLIER",sup2)).get();
+
+                            
+
+                             System.out.println("Supplier producer completed");
+
+                             producer.close();
+
+              }
+
+ 
+
+}
+
+ 
+
+ 
+
+6. Create consumer appl
+
+ 
+
+public class SupplierConsumer {
+
+ 
+
+              public static void main(String[] args) {
+
+        Properties prop=new Properties();
+
+                            
+
+                             prop.put("bootstrap.servers", "localhost:9092");
+
+                             prop.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+
+                             prop.put("value.deserializer", "com.pack.SupplierDeserializer");
+
+                             prop.put("group.id", "ggg"); //create consumer group called ggg
+
+                            
+
+                             KafkaConsumer<String,Supplier> consumer=new KafkaConsumer<>(prop);
+
+                             consumer.subscribe(Arrays.asList("suptopic"));
+
+                            
+
+                             while(true) {
+
+                                           ConsumerRecords<String,Supplier> records=consumer.poll(100);
+
+                                           for(ConsumerRecord<String,Supplier> record:records) {
+
+                                                          System.out.println("Supplier Id = "+record.value().getSupplierId()+" Supplier name = "+record.value().getName()+" Supplier Date = "+record.value().getSupplierStartDate().toString());
+
+                                           }
+
+                             }
+
+ 
+
+              }
+
+ 
+
+}
+
+ 
+
+7. Start consumer appl
+
+8. Start producer appl
+
+ 
+
+To list the topic
+
+C:\Softwares\kafka_2.12-2.6.0\config>kafka-topics.bat --zookeeper localhost:2181 --list
+
+ 
+
+To delete the topic
+
+C:\Softwares\kafka_2.12-2.6.0\config>kafka-topics.bat --zookeeper localhost:2181 --topic testtopic --delete
+
+
